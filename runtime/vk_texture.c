@@ -55,6 +55,7 @@ typedef struct Tex {
     uint64_t wr_fence;            // any entry: newest submission recorded to write its image (render, copy, clear,
                                   // storage binding); ReadTexels waits for it instead of draining the replay queue
     uint8_t listed;               // in owned[]
+    uint8_t img_stored;           // a shader with an image store had the image bound as a storage image
     uint32_t wt_n;                // WriteTexels into the storage since the last upload
     struct Tex *rel_prev, *rel_next;   // while released: the list of released entries, oldest first
 } Tex;
@@ -708,6 +709,8 @@ static int storage_rewritten(const Tex *e, uint32_t since, uint32_t *now) {
 }
 
 // A mirrored texture is uploaded on first use and again when its storage pages carry a newer write generation.
+static void note_store_overwrite(const Tex *e, int ch);
+
 static void make_fresh(Tex *e) {
     if (!e->pub.mirrored || e->pub.gpu_owned) return;
     uint64_t size = e->t.L.size;
@@ -720,6 +723,7 @@ static void make_fresh(Tex *e) {
     int ch = vk_mem_changed(e->pub.addr, size, e->wgen, &now);
     e->wgen = now;
     e->last_ch = ch;
+    note_store_overwrite(e, ch);
     if (ch) upload(e);   // 1 written, -1 not tracked: both upload again
 }
 
@@ -734,6 +738,7 @@ static void make_fresh_snap(Tex *e) {
     e->wgen = now;
     if (!e->uploaded) { upload(e); return; }
     e->last_ch = ch;
+    note_store_overwrite(e, ch);
     if (ch) upload(e);
 }
 
@@ -906,6 +911,23 @@ static void wb_cfg_init(void) {
     if (wb_limit != WB_SMALL_DEFAULT) rt_log("vk: fence write-back limit %llu bytes", (unsigned long long)wb_limit);
 }
 
+// The image now holds content its storage bytes do not: no more uploads from the storage (GPU-owned), and a mirrored
+// one is written back when the CPU reads the storage. Texture lock held; the caller made the entry fresh first.
+static void note_gpu_write(Tex *e) {
+    e->pub.gpu_owned = 1;
+    uint64_t f = vk_exec_recording_fence();
+    if (f > e->wr_fence) e->wr_fence = f;
+    if (e->pub.mirrored) {
+        e->gpu_dirty = 1;
+        storage_rewritten(e, 0, &e->gpu_gen);   // CPU writes up to here are older than this render
+        e->gpu_seq = ++gpu_writes;
+        e->gpu_fence = f;
+        wb_cfg_init();
+        if (e->t.L.size <= wb_limit) __atomic_store_n(&small_pending, 1, __ATOMIC_RELEASE);
+        own_add(e);
+    }
+}
+
 void vk_texture_gpu_written(const tex_t *t) {
     if (!t || !t->mem) return;
     vk_exec_frame_written(t);
@@ -913,18 +935,7 @@ void vk_texture_gpu_written(const tex_t *t) {
     Tex *e = entry_of(t);
     if (e) {
         make_fresh(e);   // a partial render keeps what the storage held before
-        e->pub.gpu_owned = 1;
-        uint64_t f = vk_exec_recording_fence();
-        if (f > e->wr_fence) e->wr_fence = f;
-        if (e->pub.mirrored) {
-            e->gpu_dirty = 1;
-            storage_rewritten(e, 0, &e->gpu_gen);   // CPU writes up to here are older than this render
-            e->gpu_seq = ++gpu_writes;
-            e->gpu_fence = vk_exec_recording_fence();
-            wb_cfg_init();
-            if (e->t.L.size <= wb_limit) __atomic_store_n(&small_pending, 1, __ATOMIC_RELEASE);
-            own_add(e);
-        }
+        note_gpu_write(e);
     }
     unlock();
 }
@@ -1364,11 +1375,41 @@ static int owned_dirty(uint64_t addr, uint64_t size, Tex **hit) {
 }
 
 // A storage image may be written by the shaders of the submission being recorded (texture lock held, vk_exec_draw.c
-// tex_info). Its storage is not marked GPU-owned: only the write fence for ReadTexels.
-void vk_texture_storage_bound_locked(const VkTexImage *img) {
-    Tex *e = (Tex *)img;   // pub is the first member
+// tex_info). Every binding sets the write fence for ReadTexels. A binding to a shader that stores into the image
+// (written: Ryujinx TextureUsageFlags.ImageStore) is a GPU write like a render. Before, a pass that keeps state in a
+// mirrored image across frames lost it when a CPU write to the storage pages made the next binding upload the older
+// storage bytes over it, and the CPU never saw what the shader wrote (no write-back). Rain puddles that flickered and
+// vanished, which the game did not register either, are the case this was added for. TOTK_FIX_IMG_STORE=0
+// keeps the earlier rule (fence only) and logs those uploads instead. A binding of an image the shader only loads from
+// changes nothing else: the CPU may still update such a texture.
+static int fix_img_store = -1;
+
+void vk_texture_storage_bound_locked(const VkTexImage *img, int written) {
+    Tex *e = (Tex *)img;   // pub is the first member (vk_texture_by_id_locked made it fresh for this submission)
     uint64_t f = vk_exec_recording_fence();
     if (f > e->wr_fence) e->wr_fence = f;
+    if (!written) return;
+    if (fix_img_store < 0) {
+        fix_img_store = cfg_bool("TOTK_FIX_IMG_STORE");
+        rt_log("vk: image stores %s (TOTK_FIX_IMG_STORE=%d)",
+               fix_img_store ? "mark their image GPU-written" : "only set the write fence", fix_img_store);
+    }
+    if (!e->img_stored && e->pub.mirrored) {
+        static volatile long n_first;
+        log_limited(&n_first, "image store into mirrored texture %#llx (%ux%ux%u fmt %#x, %llu bytes)",
+                    (unsigned long long)e->pub.addr, e->pub.width, e->pub.height, e->pub.depth,
+                    (unsigned)e->t.d.format, (unsigned long long)e->t.L.size);
+    }
+    e->img_stored = 1;
+    if (fix_img_store) note_gpu_write(e);
+}
+
+// TOTK_FIX_IMG_STORE=0: an upload from the storage over what an image store wrote (vk_texture_storage_bound_locked).
+static void note_store_overwrite(const Tex *e, int ch) {
+    static volatile long n;
+    if (e->img_stored && e->uploaded && ch)
+        log_limited(&n, "texture %#llx (%ux%u fmt %#x) re-uploaded from its storage over image-store content",
+                    (unsigned long long)e->pub.addr, e->pub.width, e->pub.height, (unsigned)e->t.d.format);
 }
 
 uint64_t vk_texture_last_write(const tex_t *t) {
