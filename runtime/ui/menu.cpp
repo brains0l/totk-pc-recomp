@@ -42,6 +42,7 @@ extern const int rt_game_version;
 int romfs_xbox_prompts_ready(void);
 int romfs_xbox_prompts_active(void);
 extern const char rt_port_version[];
+int vk_grade_preset(const char *name, float g[4]);
 }
 
 // Roboto Medium (Apache-2.0, ui/fonts/LICENSE-Roboto.txt) with Latin and Cyrillic glyphs.
@@ -523,6 +524,35 @@ static const char *present_note(void) {
     return note;
 }
 
+// The colour grade (vk_fsr.c): a preset, then its four sliders. Choosing a preset other than custom puts its values on
+// the sliders; moving a slider switches the preset to custom. The present reads the keys every frame.
+static void rows_color_grade(void) {
+    static const UiTextId names[] = {UI_MENU_COLOR_VANILLA, UI_MENU_COLOR_VIVID, UI_MENU_COLOR_CLARITY,
+                                     UI_MENU_COLOR_CUSTOM};
+    float g[4];
+    if (opt_choice("TOTK_COLOR_PRESET", UI_MENU_COLOR_PRESET, names, 4, UI_MENU_COLOR_PRESET_DESC) &&
+        vk_grade_preset(cfg_value("TOTK_COLOR_PRESET"), g)) {
+        char v[4][16];
+        snprintf(v[0], sizeof v[0], "%d", (int)lroundf(g[0] * 100));
+        snprintf(v[1], sizeof v[1], "%d", (int)lroundf(g[1] * 100));
+        snprintf(v[2], sizeof v[2], "%d", (int)lroundf(g[2] * 100));
+        snprintf(v[3], sizeof v[3], "%.2f", g[3]);
+        cfg_set("TOTK_BRIGHTNESS", v[0]);
+        cfg_set("TOTK_CONTRAST", v[1]);
+        cfg_set("TOTK_SATURATION", v[2]);
+        cfg_set("TOTK_GAMMA", v[3]);
+        opt_save_soon();
+    }
+    bool moved = opt_slider("TOTK_BRIGHTNESS", UI_MENU_BRIGHTNESS, -30, 30, UI_MENU_BRIGHTNESS_DESC, 1, "%+.0f %%");
+    moved |= opt_slider("TOTK_CONTRAST", UI_MENU_CONTRAST, 70, 150, UI_MENU_CONTRAST_DESC, 5, "%.0f %%");
+    moved |= opt_slider("TOTK_SATURATION", UI_MENU_SATURATION, 50, 200, UI_MENU_SATURATION_DESC, 5, "%.0f %%");
+    moved |= opt_slider("TOTK_GAMMA", UI_MENU_GAMMA, 0.80f, 1.20f, UI_MENU_GAMMA_DESC, 0.02f, "%.2f");
+    if (moved && strcmp(cfg_value("TOTK_COLOR_PRESET"), "custom")) {
+        cfg_set("TOTK_COLOR_PRESET", "custom");
+        opt_save_soon();
+    }
+}
+
 // ---- the tabs
 static void tab_screen(float scale) {
     opt_begin("##screen", scale);
@@ -541,6 +571,8 @@ static void tab_screen(float scale) {
     opt_slider("TOTK_SHARPNESS", UI_MENU_SHARPNESS, 0, 100, UI_MENU_SHARPNESS_DESC, 5, "%.0f %%");
     static const UiTextId aspect[] = {UI_MENU_ASPECT_FIT, UI_MENU_ASPECT_STRETCH};
     opt_choice("TOTK_ASPECT", UI_MENU_ASPECT, aspect, 2, UI_MENU_ASPECT_DESC);
+    opt_group(UI_MENU_GROUP_COLOR);
+    rows_color_grade();
     opt_end();
 }
 

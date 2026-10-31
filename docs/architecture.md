@@ -101,6 +101,10 @@ Every guest thread is a host thread. TotK assumes Horizon's scheduler: three app
   wide size there keeps the 16:9 view. The `aspect` setting (`fit`, the default; `stretch`) decides what the present does
   when the window's shape differs from the output's: `fit` letterboxes, where a 16:9 game in a wider window used to be
   stretched.
+- Colour grade. `color_preset` (vanilla, vivid, clarity, custom) and the brightness, contrast, saturation and gamma
+  sliders grade the game's picture in a compute pass on the present (`vk_fsr.c`, `shaders/color_grade.comp`): after FSR,
+  or in place of the bilinear blit, and before the menu overlay draws, so the menu keeps its colours. Vanilla records
+  nothing.
 - Occlusion queries never block the CPU; a result that is not ready counts as visible.
 - ASTC textures are uploaded as they are where the device reports `textureCompressionASTC_LDR`, and decoded by a compute shader everywhere else (`vk_astc.c`, `TOTK_ASTC`). The CPU decoder (`tex_astc*.c`) is the fallback and the test oracle.
 - Draw state. A draw whose program, bound state and textures repeat reuses the previous draw's shaders and skips rebuilding its descriptor sets; descriptor sets are written through update templates (`vk_exec_draw.c`, `vk_pipeline.c`).
