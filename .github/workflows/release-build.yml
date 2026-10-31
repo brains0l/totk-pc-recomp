@@ -1,0 +1,94 @@
+# Builds the installer release (TotK-Setup-<version>-windows.zip) of a branch on a GitHub Windows runner, so a fix can
+# be tested without the toolchain of docs/building.md on the tester's machine. Run it from the Actions tab (Release
+# build, Run workflow) and pick the branch; the zip is the run's artifact.
+#
+# What tools/make_release.py needs besides its own pinned downloads, made here:
+# - build/xlate/totk_xlate.exe (tools/build_xlate.py: .NET 10 NativeAOT and the runner's MSVC build tools);
+# - toolchain/hactool (tools/build_hactool.py: the runner's MSYS2 with UCRT64 gcc and make);
+# - refs/MacNativeGames with its history (the shader list's older rows, tools/shader_list.py history);
+# - generated/v121/layout.h for --make-runtime-lib. The runtime library reads MOD_COUNT, the module list and
+#   MOD_MAIN_BASE from it (runtime/loader.c, memory.c, frame_rate.c); the real bases and sizes come from the modules.c
+#   each install compiles. The runner has no game files, so the step below writes the three module names, main at
+#   recomp/layout.py FIRST_BASE and zero sizes: nothing derived from the game.
+# The release folder holds no game data; make_release.py runs check_content over it before writing the zip.
+name: Release build
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-2025
+    timeout-minutes: 180
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - uses: astral-sh/setup-uv@v6
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Cache pinned downloads
+        uses: actions/cache@v4
+        with:
+          path: toolchain/release-dl
+          key: release-dl-${{ hashFiles('tools/make_release.py') }}
+          restore-keys: release-dl-
+
+      - name: MSYS2 gcc and make (hactool)
+        run: C:\msys64\usr\bin\bash.exe -lc "pacman -S --needed --noconfirm mingw-w64-ucrt-x86_64-gcc make"
+
+      - name: MacNativeGames reference with history
+        shell: bash
+        run: |
+          commit=$(awk '$1 == "fetch" && $2 == "MacNativeGames" {print $4}' tools/fetch_refs.sh)
+          git clone -q --filter=blob:none https://github.com/ly05010419/MacNativeGames.git refs/MacNativeGames
+          git -C refs/MacNativeGames checkout -q "$commit"
+          echo "MacNativeGames at $commit"
+
+      - name: Shader translator
+        run: python tools/build_xlate.py
+
+      - name: hactool
+        run: python tools/build_hactool.py
+
+      - name: Module layout for the runtime library (no game data)
+        shell: python
+        run: |
+          import json, pathlib, sys
+          sys.path.insert(0, 'recomp')
+          src = pathlib.Path('recomp/layout.py').read_text(encoding='utf-8')
+          first = next(int(l.split('=')[1].strip(), 16) for l in src.splitlines() if l.startswith('FIRST_BASE'))
+          names = ['main', 'subsdk0', 'sdk']
+          out = pathlib.Path('generated/v121')
+          out.mkdir(parents=True, exist_ok=True)
+          (out / 'layout.json').write_text(json.dumps(
+              [{'name': n, 'base': hex(first if n == 'main' else 0), 'size': '0x0'} for n in names], indent=1) + '\n')
+          lines = ['// Module layout stub for the CI runtime library: names and the main base only.', '#pragma once', '']
+          for n in names:
+              lines += [f'#define MOD_{n.upper()}_BASE {first if n == "main" else 0:#x}ull', f'#define MOD_{n.upper()}_SIZE 0x0ull']
+          lines += ['', f'#define MOD_COUNT {len(names)}',
+                    '#define MOD_LIST(X) ' + ' '.join(f'X({n}, {n.upper()})' for n in names), '']
+          (out / 'layout.h').write_text('\n'.join(lines))
+          print((out / 'layout.h').read_text())
+
+      - name: Release folder and zip
+        run: |
+          $v = (Get-Content VERSION -Raw).Trim() + '+' + (git rev-parse --short HEAD)
+          "RELEASE=$v" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          python tools/make_release.py --out build/release/TotK-Setup --zip "build/release/TotK-Setup-$v-windows.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TotK-Setup-${{ env.RELEASE }}-windows
+          path: build/release/TotK-Setup-*-windows.zip
+          compression-level: 0
+          retention-days: 14
