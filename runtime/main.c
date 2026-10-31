@@ -137,13 +137,13 @@ static void parse_trace(void) {
     static const struct { const char *name; unsigned bit; } names[] = {
         {"svc", RT_TRACE_SVC}, {"host", RT_TRACE_HOSTCALL}, {"ipc", RT_TRACE_IPC}, {"fs", RT_TRACE_FS},
         {"gfx", RT_TRACE_GFX}, {"perf", RT_TRACE_PERF}, {"sched", RT_TRACE_SCHED}, {"audio", RT_TRACE_AUDIO},
-        {"present", RT_TRACE_PRESENT}, {"all", ~0u}};
+        {"present", RT_TRACE_PRESENT}, {"oq", RT_TRACE_OQ}, {"all", ~0u}};
     for (const char *p = e; *p;) {
         size_t n = strcspn(p, ",");
         int known = 0;
         for (unsigned i = 0; i < sizeof names / sizeof *names; i++)
             if (strlen(names[i].name) == n && !strncmp(p, names[i].name, n)) rt_trace |= names[i].bit, known = 1;
-        if (!known && n) rt_log("TOTK_TRACE: unknown item '%.*s' (svc, host, ipc, fs, gfx, perf, sched, audio, present, all)", (int)n, p);
+        if (!known && n) rt_log("TOTK_TRACE: unknown item '%.*s' (svc, host, ipc, fs, gfx, perf, sched, audio, present, oq, all)", (int)n, p);
         p += n + (p[n] == ',');
     }
 }

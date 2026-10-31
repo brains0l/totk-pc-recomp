@@ -179,3 +179,5 @@ void vk_exec_op_xfer(VkExec *ex, uint32_t op, const void *payload);
 // when counting and none is active), and the open pass about to end (ends the active query).
 void vk_exec_oq_draw(VkExec *ex);
 void vk_exec_oq_pass_end(VkExec *ex);
+// 1 when the submission replayed since the last call reports samples passed into CPU-visible memory (TOTK_OQ_SYNC).
+int vk_exec_oq_take_sync(void);
