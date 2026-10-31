@@ -168,6 +168,10 @@ Grep-level look on 2026-10-22, statuses updated 2026-10-26; "saw" is what the gr
    NVN log for counter types other than TIMESTAMP; any occlusion-driven visibility (flares, culling) is off. **Fixed 2026-10-22**:
    SAMPLES_PASSED counts come from Vulkan occlusion queries between RESET and REPORT (`vk_exec_xfer.c`, ~4 queries
    per frame in the field, ~21 in a fight); the game's CPU reads them (guest f_70010c3298) to cull objects.
+   **Open (2026-10-31)**: the counts land when the replayed submission completes, possibly later than the game reads
+   them; the camera rune's subject marker flickered and a quest photo did not register. `TOTK_TRACE=oq` logs report
+   latency and counts that flip between 0 and nonzero; `TOTK_OQ_SYNC=1` waits for those submissions
+   (`vk_exec_xfer.c`, "latency of samples-passed reports").
 6. **Subgroup size.** The translator assumes 32; RDNA4 may run fragment shaders in wave64. `vk_caps.c` and
    `vk_pipeline.c` `pin_subgroup32` pin stages to 32 lanes with `VkPipelineShaderStageRequiredSubgroupSizeCreateInfo`
    where `subgroupSizeControl` allows it, and otherwise tell the translator the GPU's own size

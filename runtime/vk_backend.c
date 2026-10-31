@@ -188,11 +188,25 @@ uint64_t gfx_replayed_submits(void) {
     return v;
 }
 
+// TOTK_OQ_SYNC (vk_exec_xfer.c, "latency of samples-passed reports"): read once. It acts only on the synchronous
+// replay, where the game's own thread runs submit_sync; with TOTK_REPLAY_ASYNC the game does not wait for the replay.
+static int oq_sync_on(void) {
+    static int on = -1;
+    if (on < 0) {
+        on = cfg_bool("TOTK_OQ_SYNC");
+        if (on && vk_replay_async()) rt_log("vk: TOTK_OQ_SYNC has no effect with TOTK_REPLAY_ASYNC=1");
+        else if (on) rt_log("vk: submissions with samples-passed reports wait for the GPU (TOTK_OQ_SYNC=1)");
+    }
+    return on;
+}
+
 static uint64_t submit_sync(const uint64_t *handles, int n) {
     vk_sync_start();
     vk_present_drain();
     vk_texture_new_submit();
-    return vk_sync_submit(handles, n);
+    uint64_t f = vk_sync_submit(handles, n);
+    if (vk_exec_oq_take_sync() && oq_sync_on() && !vk_replay_async()) vk_sync_fence_wait(f, 1000000000ull);
+    return f;
 }
 
 static DWORD WINAPI replay_main(void *arg) {

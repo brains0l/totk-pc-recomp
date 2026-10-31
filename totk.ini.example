@@ -70,6 +70,10 @@
 # fix_c0 = 1
 # New GPU memory pools start zero-filled, as Switch memory does.
 # fix_zero = 1
+# Wait for the GPU after each submission whose samples-passed counts the game reads, so it reads this frame's count
+# and not an older one. Try it when the camera rune's subject marker flickers or a photo of a target does not register.
+# Costs frame rate. No effect with replay_async = 1.
+# oq_sync = 0
 # Optimisations, 0 turns each off: skip bindings that did not change, remember shader lookups, reuse the previous
 # draw's pipeline when its state repeats, remember texture descriptors between draws, update descriptors in bulk,
 # skip push constants that did not change.

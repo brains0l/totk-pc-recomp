@@ -136,7 +136,69 @@ static uint32_t oq_nseg, oq_capseg;
 static int oq_lost;                      // replay: the segment missed a draw (ring full)
 static uint64_t oq_count;                // completion thread: samples since the last reset
 
-typedef struct { uint64_t addr; int reset, lost; uint32_t n; uint32_t q[]; } OqSegment;
+typedef struct { uint64_t addr, fence, t0; int reset, lost; uint32_t n; uint32_t q[]; } OqSegment;
+
+// ---- latency of samples-passed reports (TOTK_OQ_SYNC)
+//
+// The game does not wait for its samples-passed reports: it reads the words some frames after the submit, as a frame or
+// less is enough on the Switch, where the GPU starts when QueueSubmitCommands returns. Here a report reaches guest memory
+// once its submission was replayed and completed, which can take longer; a word read before then still holds what the
+// previous report to it wrote, so a tested object can be judged hidden or visible from another frame's
+// count. Added for the camera rune, whose subject marker flickered so that photos of a quest target did not register;
+// TOTK_TRACE=oq (below) shows whether report counts flip at the same time.
+// TOTK_OQ_SYNC=1 makes the submitting thread wait, after the replay, until a submission that reports samples passed
+// into CPU-visible memory has completed, so the count is in memory before the game's next CPU work. It costs the GPU
+// time of those submissions on the game's thread. vk_exec_oq_take_sync tells vk_backend.c that the submission just
+// replayed holds such a report.
+static int oq_sync_due;   // replay: the submission being recorded reports samples passed into CPU-visible memory
+
+int vk_exec_oq_take_sync(void) {
+    int due = oq_sync_due;
+    oq_sync_due = 0;
+    return due;
+}
+
+// ---- report trace (TOTK_TRACE=oq), on the completion thread
+//
+// Per report: the time from recording to the write into guest memory and how many submissions were issued after it by
+// then (how many frames the game ran ahead of the count). A report whose count turns from 0 to nonzero or back, against
+// the previous report to the same address, is a flip: an object tested by that query was judged visible in one report
+// and hidden in the next. Flips are logged one per line, at most OQT_LINES per window; every OQT_WINDOW_NS a summary.
+#define OQT_SLOTS 1024
+#define OQT_LINES 40
+#define OQT_WINDOW_NS 2000000000ull
+static struct { uint64_t addr, count; } oqt_tab[OQT_SLOTS];
+static struct { uint64_t t0, reports, zeros, flips, lat_sum, lat_max, behind_max; unsigned lines; } oqt;
+
+static void oq_trace(const OqSegment *s, uint64_t count) {
+    uint64_t now = kern_now_ns(), lat = now - s->t0, issued = vk_sync_issued();
+    uint64_t behind = issued > s->fence ? issued - s->fence : 0;
+    if (!oqt.t0) oqt.t0 = now;
+    oqt.reports++, oqt.zeros += !count, oqt.lat_sum += lat;
+    if (lat > oqt.lat_max) oqt.lat_max = lat;
+    if (behind > oqt.behind_max) oqt.behind_max = behind;
+    uint32_t h = (uint32_t)((s->addr >> 4) * 0x9E3779B1u) % OQT_SLOTS, k = 0;
+    while (oqt_tab[h].addr && oqt_tab[h].addr != s->addr && ++k < OQT_SLOTS) h = (h + 1) % OQT_SLOTS;
+    if (k < OQT_SLOTS) {   // a full table stops tracking new addresses; the summary still counts them
+        if (oqt_tab[h].addr == s->addr && !oqt_tab[h].count != !count) {
+            oqt.flips++;
+            if (oqt.lines++ < OQT_LINES)
+                rt_log("oq: %#llx %llu -> %llu samples, %.1f ms after recording, %llu submits behind",
+                       (unsigned long long)s->addr, (unsigned long long)oqt_tab[h].count, (unsigned long long)count,
+                       lat / 1e6, (unsigned long long)behind);
+        }
+        oqt_tab[h].addr = s->addr, oqt_tab[h].count = count;
+    }
+    if (now - oqt.t0 >= OQT_WINDOW_NS) {
+        rt_log("oq: %.1f s: %llu reports (%llu zero), %llu flips; record to write mean %.1f ms max %.1f ms, up to %llu "
+               "submits behind%s",
+               (now - oqt.t0) / 1e9, (unsigned long long)oqt.reports, (unsigned long long)oqt.zeros,
+               (unsigned long long)oqt.flips, oqt.lat_sum / 1e6 / (double)oqt.reports, oqt.lat_max / 1e6,
+               (unsigned long long)oqt.behind_max, oqt.lines > OQT_LINES ? " (flip lines cut)" : "");
+        memset(&oqt, 0, sizeof oqt);
+        oqt.t0 = now;
+    }
+}
 
 static int oq_ready(void) {
     if (oq_state) return oq_state > 0;
@@ -196,7 +258,7 @@ void vk_exec_oq_pass_end(VkExec *ex) { oq_close(ex); }
 void vk_exec_xfer_shutdown(void) {
     if (oq_state > 0) vkDestroyQueryPool(vk_ctx()->device, oq_pool, NULL);
     oq_pool = VK_NULL_HANDLE, oq_state = 0, oq_next = 0, oq_counting = oq_reported = oq_keep = 0, oq_open = -1;
-    oq_nseg = 0, oq_lost = 0, oq_count = 0;
+    oq_nseg = 0, oq_lost = 0, oq_count = 0, oq_sync_due = 0;
     memset((void *)oq_busy, 0, sizeof oq_busy);
 }
 
@@ -230,7 +292,10 @@ static void oq_cb(void *arg) {
     else {
         oq_count += sum;
         if (s->lost && !oq_count) oq_count = 1;
-        if (s->addr) write_counter(s->addr, oq_count);
+        if (s->addr) {
+            write_counter(s->addr, oq_count);
+            if (rt_trace & RT_TRACE_OQ) oq_trace(s, oq_count);
+        }
     }
     free(s);
 }
@@ -240,7 +305,7 @@ static void oq_segment(VkExec *ex, uint64_t addr, int reset) {
     oq_close(ex);
     OqSegment *s = malloc(sizeof *s + sizeof *s->q * oq_nseg);
     if (!s) rt_fatal("vk: out of memory");
-    s->addr = addr, s->reset = reset, s->lost = oq_lost, s->n = oq_nseg;
+    s->addr = addr, s->fence = ex->fence, s->t0 = kern_now_ns(), s->reset = reset, s->lost = oq_lost, s->n = oq_nseg;
     memcpy(s->q, oq_seg, sizeof *s->q * oq_nseg);
     oq_nseg = 0, oq_lost = 0;
     vk_completion_add(ex->fence, oq_cb, s);
@@ -281,7 +346,7 @@ static void report_counter(VkExec *ex, const p_report_counter *p) {
     if (!vk_mem_resolve(p->addr, sizeof(NVNcounterData), &m))
         rt_fatal("vk: counter report at %#llx is in no memory pool", (unsigned long long)p->addr);
     vk_mem_count(m.cls, VK_MUSE_GPU_WRITE, sizeof(NVNcounterData));
-    if (samples) oq_report(ex, p->addr);
+    if (samples) oq_report(ex, p->addr), oq_sync_due = 1;
     else {
         uint64_t *a = malloc(sizeof *a);
         if (!a) rt_fatal("vk: out of memory");
