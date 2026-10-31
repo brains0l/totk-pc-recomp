@@ -1,0 +1,29 @@
+// Colour grading of the game's picture on the present path (runtime/vk_fsr.c vk_grade_pass): brightness, contrast,
+// saturation and gamma, before the menu overlay is drawn, so the menu and the performance overlay keep their colours.
+// Reads the source bilinearly over a rectangle (the game's crop scaled to the picture's place on the swapchain, or the
+// FSR result 1:1) and writes the graded picture into an RGBA16F image of the output's size.
+#version 450
+
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) uniform sampler2D src;
+layout(set = 0, binding = 1, rgba16f) uniform writeonly image2D dst;
+
+layout(push_constant) uniform Params {
+    vec4 map;     // uv = map.xy + (pixel + 0.5) * map.zw
+    vec4 size;    // output width, height, unused, unused
+    vec4 grade;   // brightness (added), contrast (factor around 0.5), saturation (factor), gamma (exponent)
+} pc;
+
+void main() {
+    ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    if (p.x >= int(pc.size.x) || p.y >= int(pc.size.y)) return;
+    vec2 uv = pc.map.xy + (vec2(p) + 0.5) * pc.map.zw;
+    vec3 c = clamp(textureLod(src, uv, 0.0).rgb, 0.0, 1.0);
+    c += pc.grade.x;
+    c = (c - 0.5) * pc.grade.y + 0.5;
+    float luma = dot(c, vec3(0.2126, 0.7152, 0.0722));   // Rec. 709 weights
+    c = mix(vec3(luma), c, pc.grade.z);
+    c = pow(clamp(c, 0.0, 1.0), vec3(pc.grade.w));       // below 1 lifts the shadows
+    imageStore(dst, p, vec4(c, 1.0));
+}

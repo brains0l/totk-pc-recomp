@@ -104,7 +104,13 @@ void vk_present_blit(VkImage src, VkImageLayout layout, VkFormat fmt, int w, int
 // {x, y, w, h} of dst, a swapchain image in TRANSFER_DST; src is in GENERAL and fmt its format. 0 = nothing recorded
 // (the setting says bilinear, no upscale is needed, or FSR is not available): the caller blits.
 int vk_fsr_record(VkCommandBuffer cb, unsigned slot, VkImage src, VkFormat fmt, int sw, int sh, const int crop[4],
-                  VkImage dst, const int out[4]);
+                  VkImage dst, const int out[4]);   // the colour grade, when one is set, is part of it
+// The colour grade without FSR (vk_fsr.c): src's crop scaled bilinearly into out, graded, in place of the caller's blit.
+// 0 = nothing recorded (neutral grade or no compute path): the caller blits.
+int vk_grade_record(VkCommandBuffer cb, unsigned slot, VkImage src, VkFormat fmt, int sw, int sh, const int crop[4],
+                    VkImage dst, const int out[4]);
+// A colour preset's {brightness, contrast, saturation, gamma} (vk_fsr.c); 0 for custom or an unknown name.
+int vk_grade_preset(const char *name, float g[4]);
 void vk_fsr_release(void);   // before the device goes away
 void vk_present_flip(void);
 // Every submission to ctx->gfx_queue (and xfer_queue when shared) takes this lock; vk_present_image and the swapchain
