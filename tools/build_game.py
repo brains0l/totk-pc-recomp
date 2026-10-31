@@ -786,7 +786,8 @@ def main():
     if unknown:
         sys.exit(f'unknown modules {unknown}; the layout has {names}')
     linked = [m for m in names if m in wanted]
-    mods = {m: chunk_files(gen, m) for m in linked}
+    # --make-runtime-lib compiles none of the generated C, so it needs no chunk lists (a CI runner has no generated C)
+    mods = {} if args.make_runtime_lib else {m: chunk_files(gen, m) for m in linked}
 
     cpus = os.cpu_count() or 1
     budget = min(MEM_BUDGET, int(total_ram() * 0.8))
