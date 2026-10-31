@@ -71,6 +71,9 @@
 # fix_c0 = 1
 # New GPU memory pools start zero-filled, as Switch memory does.
 # fix_zero = 1
+# Textures a shader stores into (compute passes) count as GPU-written, as render targets do: no reload from older
+# memory, written back when the game reads them. 0 = the earlier rule, with a log line for each reload over such content.
+# fix_img_store = 1
 # Optimisations, 0 turns each off: skip bindings that did not change, remember shader lookups, reuse the previous
 # draw's pipeline when its state repeats, remember texture descriptors between draws, update descriptors in bulk,
 # skip push constants that did not change.
