@@ -10,6 +10,10 @@
 #   MOD_MAIN_BASE from it (runtime/loader.c, memory.c, frame_rate.c); the real bases and sizes come from the modules.c
 #   each install compiles. The runner has no game files, so the step below writes the three module names, main at
 #   recomp/layout.py FIRST_BASE and zero sizes: nothing derived from the game.
+# - a Vulkan 1.3 device for the check-only installer pass at the end of make_release.py (check_bundle): the installer's
+#   host check stops at "Vulkan missing" or "no device" before it reaches the missing game files the pass expects, and
+#   the runner has no GPU. Mesa's lavapipe (software) is the device; the loader goes into System32 because the pass runs
+#   with a PATH of the Windows system directory and the bundled python only.
 # The release folder holds no game data; make_release.py runs check_content over it before writing the zip.
 name: Release build
 
@@ -35,6 +39,23 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "10.0.x"
+
+      - name: Vulkan loader and lavapipe (software device)
+        uses: jakoch/install-vulkan-sdk-action@v1
+        with:
+          install_runtime_only: true
+          install_lavapipe: true
+          cache: false
+
+      - name: Vulkan loader where the installer's host check finds it
+        run: |
+          $all = Get-ChildItem -Recurse C:\VulkanSDK -Filter vulkan-1.dll -ErrorAction SilentlyContinue
+          $all | ForEach-Object { $_.FullName }
+          $dll = $all | Where-Object { $_.FullName -notmatch 'x86|32' } | Select-Object -First 1
+          if (-not $dll) { throw 'no 64-bit vulkan-1.dll under C:\VulkanSDK' }
+          Copy-Item $dll.FullName C:\Windows\System32\vulkan-1.dll -Force
+          Get-ChildItem 'HKLM:\SOFTWARE\Khronos\Vulkan\Drivers' -ErrorAction SilentlyContinue | Out-String
+          (Get-Item 'HKLM:\SOFTWARE\Khronos\Vulkan\Drivers' -ErrorAction SilentlyContinue).Property
 
       - name: Cache pinned downloads
         uses: actions/cache@v4
