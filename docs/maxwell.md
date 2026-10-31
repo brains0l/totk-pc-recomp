@@ -183,6 +183,10 @@ Grep-level look on 2026-10-22, statuses updated 2026-10-26; "saw" is what the gr
 8. **GPU writes into CPU-visible pools.** `note_gpu_write` (`vk_exec_xfer.c`) stamps pages when the fence
    completes, so a texture sampled later in the same submission keeps its old upload; GPU-only pools are skipped.
    MNG saw at most one buffer copy per frame in TotK, so low priority. **Risk.**
+   Image stores into mirrored textures were not GPU writes either (only the ReadTexels fence), so a CPU write to the
+   storage pages made the next binding upload older bytes over them, with no write-back. **Fixed 2026-10-31** for
+   bindings whose shader stores (`vk_texture.c` `vk_texture_storage_bound_locked`, `TOTK_FIX_IMG_STORE`); added for
+   rain puddles that flickered and vanished.
 9. **Index buffers.** `vk_exec_draw.c` `op_draw_idx`: byte indices widened on the CPU at record time, skipped in
    device-local memory; `restart_for`: a non-all-ones restart index logged and dropped. Census (2026-10-22): 130-170 byte-index draws/frame widened on the
    CPU, 0 device-local, 0 non-all-ones restarts. **OK**; `VK_KHR_index_type_uint8` (supported) would drop the CPU cost.

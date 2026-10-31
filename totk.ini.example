@@ -74,6 +74,9 @@
 # and not an older one. Try it when the camera rune's subject marker flickers or a photo of a target does not register.
 # Costs frame rate. No effect with replay_async = 1.
 # oq_sync = 0
+# Textures a shader stores into (compute passes) count as GPU-written, as render targets do: no reload from older
+# memory, written back when the game reads them. 0 = the earlier rule, with a log line for each reload over such content.
+# fix_img_store = 1
 # Optimisations, 0 turns each off: skip bindings that did not change, remember shader lookups, reuse the previous
 # draw's pipeline when its state repeats, remember texture descriptors between draws, update descriptors in bulk,
 # skip push constants that did not change.
