@@ -595,10 +595,12 @@ static void present_image(VkImage src, VkImageLayout layout, VkFormat fmt, int w
                      VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
                      VK_ACCESS_2_TRANSFER_WRITE_BIT);
     }
-    // FSR (TOTK_UPSCALER) when the picture's rectangle is larger than the crop; else the bilinear blit
+    // FSR (TOTK_UPSCALER) when the picture's rectangle is larger than the crop; else the colour grade's
+    // bilinear pass when a grade is set (TOTK_COLOR_PRESET); else the bilinear blit. FSR includes the grade.
     int fsr = general && vk_fsr_record(cb, slot, src, fmt, w, h, rect, dst, to);
+    int graded = !fsr && general && vk_grade_record(cb, slot, src, fmt, w, h, rect, dst, to);
     g_scaler = fsr ? 2 : cw != to[2] || ch != to[3];
-    if (!fsr) {
+    if (!fsr && !graded) {
         if (general)   // a GENERAL source (vk_texture.c images): earlier submissions' writes become visible to the blit here
             sync_barrier(cb, src, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
                          VK_ACCESS_2_MEMORY_WRITE_BIT, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT);

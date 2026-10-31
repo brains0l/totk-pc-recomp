@@ -67,6 +67,17 @@ static const char *const text_en[UI_TEXT_COUNT] = {
     [UI_MENU_ASPECT_DESC] = "When the window's shape differs from the game resolution's (a 16:9 picture on a 21:9 "
                             "screen): keep the picture's shape with black bars, or stretch it over the window.",
     [UI_MENU_ASPECT_FIT] = "Black bars", [UI_MENU_ASPECT_STRETCH] = "Stretch",
+    [UI_MENU_GROUP_COLOR] = "Colour",
+    [UI_MENU_COLOR_PRESET] = "Colour profile",
+    [UI_MENU_COLOR_PRESET_DESC] = "Vanilla shows the game's own colours. Vivid suits OLED screens: more saturation and "
+                                  "contrast, shadows lifted. Clarity is a milder boost. The menu and overlays keep their "
+                                  "colours.",
+    [UI_MENU_COLOR_VANILLA] = "Vanilla", [UI_MENU_COLOR_VIVID] = "Vivid (OLED)", [UI_MENU_COLOR_CLARITY] = "Clarity",
+    [UI_MENU_COLOR_CUSTOM] = "Custom",
+    [UI_MENU_BRIGHTNESS] = "Brightness", [UI_MENU_BRIGHTNESS_DESC] = "Raises or lowers the whole picture. Moving a slider switches the profile to Custom.",
+    [UI_MENU_CONTRAST] = "Contrast", [UI_MENU_CONTRAST_DESC] = "Spreads light and dark apart (above 100%) or brings them together.",
+    [UI_MENU_SATURATION] = "Saturation", [UI_MENU_SATURATION_DESC] = "Colour strength: 100% is the game's, 50% close to grey.",
+    [UI_MENU_GAMMA] = "Gamma", [UI_MENU_GAMMA_DESC] = "Below 1.00 lifts detail out of dark areas such as caves and the Depths; above 1.00 deepens them.",
     [UI_MENU_SHARPNESS] = "FSR sharpness",
     [UI_MENU_SHARPNESS_DESC] = "Sharpening after FSR scaling; 0 turns it off.",
 
@@ -314,6 +325,17 @@ static const char *const text_ru[UI_TEXT_COUNT] = {
     [UI_MENU_ASPECT_DESC] = "Когда форма окна отличается от разрешения игры (картинка 16:9 на экране 21:9): сохранить "
                             "форму картинки с чёрными полосами или растянуть её на всё окно.",
     [UI_MENU_ASPECT_FIT] = "Чёрные полосы", [UI_MENU_ASPECT_STRETCH] = "Растянуть",
+    [UI_MENU_GROUP_COLOR] = "Цвет",
+    [UI_MENU_COLOR_PRESET] = "Цветовой профиль",
+    [UI_MENU_COLOR_PRESET_DESC] = "«Оригинал» — цвета самой игры. «Насыщенный» подходит для OLED-экранов: больше "
+                                  "насыщенности и контраста, тени светлее. «Чёткость» — мягкое усиление. Меню и оверлеи "
+                                  "не меняют цвет.",
+    [UI_MENU_COLOR_VANILLA] = "Оригинал", [UI_MENU_COLOR_VIVID] = "Насыщенный (OLED)", [UI_MENU_COLOR_CLARITY] = "Чёткость",
+    [UI_MENU_COLOR_CUSTOM] = "Свой",
+    [UI_MENU_BRIGHTNESS] = "Яркость", [UI_MENU_BRIGHTNESS_DESC] = "Делает всю картинку светлее или темнее. Движение ползунка переключает профиль на «Свой».",
+    [UI_MENU_CONTRAST] = "Контраст", [UI_MENU_CONTRAST_DESC] = "Раздвигает светлое и тёмное (выше 100%) или сближает их.",
+    [UI_MENU_SATURATION] = "Насыщенность", [UI_MENU_SATURATION_DESC] = "Сила цвета: 100% — как в игре, 50% — почти серый.",
+    [UI_MENU_GAMMA] = "Гамма", [UI_MENU_GAMMA_DESC] = "Ниже 1.00 проявляет детали в тёмных местах, например в пещерах и Глубинах; выше 1.00 делает их глубже.",
     [UI_MENU_SHARPNESS] = "Резкость FSR",
     [UI_MENU_SHARPNESS_DESC] = "Повышение резкости после масштабирования FSR; 0 выключает его.",
 
